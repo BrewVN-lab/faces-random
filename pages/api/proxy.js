@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   try {
-    const response = await fetch("https://thispersondoesnotexist.com/image", {
+    const response = await fetch("https://thispersondoesnotexist.com", {
       headers: {
         "User-Agent": "Mozilla/5.0",
       },
