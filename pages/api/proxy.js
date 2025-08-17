@@ -1,4 +1,11 @@
 export default async function handler(req, res) {
+  if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return res.status(200).end();
+  }
+
   try {
     const response = await fetch("https://thispersondoesnotexist.com", {
       headers: { "User-Agent": "Mozilla/5.0" },
@@ -11,11 +18,7 @@ export default async function handler(req, res) {
     const arrayBuffer = await response.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // ✅ Thêm CORS headers
-    res.setHeader("Access-Control-Allow-Origin", "https://faces-random.vercel.app/*");
-    res.setHeader("Access-Control-Allow-Methods", "GET");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(buffer);
