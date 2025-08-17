@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     const buffer = Buffer.from(arrayBuffer);
 
     // ✅ Thêm CORS headers
-    res.setHeader("Access-Control-Allow-Origin", "*"); // hoặc thay * bằng domain của bạn
+    res.setHeader("Access-Control-Allow-Origin", "https://faces-random.vercel.app/*");
     res.setHeader("Access-Control-Allow-Methods", "GET");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
