@@ -13,8 +13,8 @@ export default function RootLayout({
       </head>
       <body>
         {children}
-        <Analytics />       {/* 👈 Theo dõi lượt truy cập */}
-        <SpeedInsights />   {/* 👈 Theo dõi hiệu năng */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
