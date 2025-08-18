@@ -1,10 +1,11 @@
 export default async function handler(req, res) {
   const allowedOrigins = [
-    "https://studentidcard.me","http://127.0.0.1:5500/index.html"
+    "https://studentidcard.me",
+    "http://127.0.0.1:5500/index.html"
   ];
   const origin = req.headers.origin;
 
-  // Xử lý preflight CORS
+  // Preflight
   if (req.method === "OPTIONS") {
     if (allowedOrigins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
@@ -14,12 +15,15 @@ export default async function handler(req, res) {
     }
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers","Content-Type, Authorization, X-Requested-With");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With"
+    );
     return res.status(200).end();
   }
 
   try {
-    // Timeout để tránh treo request
+    // Timeout
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1000);
     const response = await fetch("https://thispersondoesnotexist.com", {
@@ -29,14 +33,10 @@ export default async function handler(req, res) {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.error("Upstream error", {
-        status: response.status,
-        headers: Object.fromEntries(response.headers),
-      });
       throw new Error(`Upstream returned ${response.status}`);
     }
 
-    // Gắn CORS vào response chính
+    // CORS
     if (allowedOrigins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -50,11 +50,14 @@ export default async function handler(req, res) {
       "Content-Type, Authorization, X-Requested-With"
     );
 
+    // Headers ảnh
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
 
-    // Pipe stream trực tiếp để tiết kiệm RAM
-    response.body.pipe(res);
+    // ✅ Gửi ảnh bằng buffer thay vì pipe
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    res.status(200).send(buffer);
 
   } catch (error) {
     console.error("Proxy error:", error);
