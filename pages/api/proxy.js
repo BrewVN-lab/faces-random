@@ -1,17 +1,25 @@
 export default async function handler(req, res) {
   // Danh sách domain được phép
-  const allowedOrigins = ["https://studentidcard.me", "http://127.0.0.1:5500/index.html"];
+  const allowedOrigins = [
+    "https://studentidcard.me",
+    "http://127.0.0.1:5500/index.html"
+  ];
   const origin = req.headers.origin;
 
   // Xử lý preflight CORS
   if (req.method === "OPTIONS") {
     if (allowedOrigins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
     } else {
       res.setHeader("Access-Control-Allow-Origin", "*");
     }
-    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With"
+    );
     return res.status(200).end();
   }
 
@@ -36,11 +44,16 @@ export default async function handler(req, res) {
     // Gắn CORS vào response chính
     if (allowedOrigins.includes(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
     } else {
       res.setHeader("Access-Control-Allow-Origin", "*");
     }
-    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With"
+    );
 
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "no-store");
