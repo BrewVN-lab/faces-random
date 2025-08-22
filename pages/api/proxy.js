@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     // Timeout
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1000);
-    const response = await fetch("https://thispersonnotexist.org", {
+    const response = await fetch("https://thispersondoesnotexist.com", {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: controller.signal,
     });
