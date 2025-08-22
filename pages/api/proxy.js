@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     // Timeout
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1000);
-    const response = await fetch("https://thispersondoesnotexist.com", {
+    const response = await fetch("https://generated.photos/faces", {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: controller.signal,
     });
