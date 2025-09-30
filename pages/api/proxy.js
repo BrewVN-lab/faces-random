@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
   const allowedOrigins = [
     "https://studentidcard.me",
-    "http://127.0.0.1:5500/index.html"
+    "http://127.0.0.1:5500"
   ];
   const origin = req.headers.origin;
 
