@@ -1,56 +1,88 @@
 export const runtime = 'edge';
 
+const CACHE_TTL = 10;
+const FALLBACK_IMAGE = "https://placehold.co/512x512?text=Retry+Later";
+
+const edgeCache = new Map();
+
 export default async function handler(req) {
+  const origin = req.headers.get("origin");
+  const now = Date.now();
+
   const allowedOrigins = [
     "https://*.toolkitmmo.com",
     "http://127.0.0.1:5500",
-    "http://127.0.0.1:5501"
+    "http://127.0.0.1:5501",
   ];
 
-  const origin = req.headers.get("origin");
+  const corsHeaders = new Headers({
+    "Cache-Control": "no-store",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+    "Vary": "Origin",
+  });
+
+  if (allowedOrigins.includes(origin)) {
+    corsHeaders.set("Access-Control-Allow-Origin", origin);
+    corsHeaders.set("Access-Control-Allow-Credentials", "true");
+  } else {
+    corsHeaders.set("Access-Control-Allow-Origin", "*");
+  }
+
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  const cached = edgeCache.get("latest");
+  if (cached && now - cached.time < CACHE_TTL * 1000) {
+    return new Response(cached.data, {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(corsHeaders),
+        "Content-Type": "image/jpeg",
+        "X-Cache": "HIT",
+      },
+    });
+  }
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000); // tăng lên 3s để tránh timeout sớm
+    const timeout = setTimeout(() => controller.abort(), 3000);
 
     const response = await fetch("https://thispersondoesnotexist.com", {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: controller.signal,
     });
+
     clearTimeout(timeout);
 
-    if (!response.ok) {
-      throw new Error(`Upstream returned ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
 
-    const imageBuffer = await response.arrayBuffer();
+    const buffer = await response.arrayBuffer();
 
-    // CORS headers
-    const headers = new Headers({
-      "Content-Type": "image/jpeg",
-      "Cache-Control": "no-store",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-      "Vary": "Origin",
+    edgeCache.set("latest", { data: buffer, time: now });
+
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(corsHeaders),
+        "Content-Type": "image/jpeg",
+        "X-Cache": "MISS",
+      },
     });
-
-    if (allowedOrigins.includes(origin)) {
-      headers.set("Access-Control-Allow-Origin", origin);
-      headers.set("Access-Control-Allow-Credentials", "true");
-    } else {
-      headers.set("Access-Control-Allow-Origin", "*");
-    }
-
-    return new Response(imageBuffer, { status: 200, headers });
-
   } catch (error) {
     console.error("Proxy error:", error);
-    return new Response(
-      JSON.stringify({ error: "Không lấy được ảnh", detail: error.message }),
-      {
-        status: error.name === "AbortError" ? 504 : 500,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+
+    const fallback = await fetch(FALLBACK_IMAGE);
+    const fallbackBuffer = await fallback.arrayBuffer();
+
+    return new Response(fallbackBuffer, {
+      status: 200,
+      headers: {
+        ...Object.fromEntries(corsHeaders),
+        "Content-Type": "image/png",
+        "X-Cache": "FALLBACK",
+      },
+    });
   }
 }
