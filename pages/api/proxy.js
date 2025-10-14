@@ -1,13 +1,9 @@
 export const runtime = 'edge';
 
-const CACHE_TTL = 10;
 const FALLBACK_IMAGE = "https://placehold.co/512x512?text=Retry+Later";
-
-const edgeCache = new Map();
 
 export default async function handler(req) {
   const origin = req.headers.get("origin");
-  const now = Date.now();
 
   const allowedOrigins = [
     "https://*.toolkitmmo.com",
@@ -33,18 +29,6 @@ export default async function handler(req) {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  const cached = edgeCache.get("latest");
-  if (cached && now - cached.time < CACHE_TTL * 1000) {
-    return new Response(cached.data, {
-      status: 200,
-      headers: {
-        ...Object.fromEntries(corsHeaders),
-        "Content-Type": "image/jpeg",
-        "X-Cache": "HIT",
-      },
-    });
-  }
-
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
@@ -60,14 +44,12 @@ export default async function handler(req) {
 
     const buffer = await response.arrayBuffer();
 
-    edgeCache.set("latest", { data: buffer, time: now });
-
     return new Response(buffer, {
       status: 200,
       headers: {
         ...Object.fromEntries(corsHeaders),
         "Content-Type": "image/jpeg",
-        "X-Cache": "MISS",
+        "X-Cache": "NONE",
       },
     });
   } catch (error) {
