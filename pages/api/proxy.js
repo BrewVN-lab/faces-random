@@ -1,6 +1,8 @@
+export const runtime = 'edge';
+
 export default async function handler(req, res) {
   const allowedOrigins = [
-    "https://studentidcard.me",
+    "https://toolkitmmo.com",
     "http://127.0.0.1:5500",
     "http://127.0.0.1:5501"
   ];
