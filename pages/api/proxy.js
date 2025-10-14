@@ -1,34 +1,18 @@
 export const runtime = 'edge';
 
-export default async function handler(req, res) {
+export default async function handler(req) {
   const allowedOrigins = [
     "https://*.toolkitmmo.com",
     "http://127.0.0.1:5500",
     "http://127.0.0.1:5501"
   ];
-  const origin = req.headers.origin;
 
-  // Preflight
-  if (req.method === "OPTIONS") {
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-    } else {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    }
-    res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With"
-    );
-    return res.status(200).end();
-  }
+  const origin = req.headers.get("origin");
 
   try {
-    // Timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1000);
+    const timeout = setTimeout(() => controller.abort(), 3000); // tăng lên 3s để tránh timeout sớm
+
     const response = await fetch("https://thispersondoesnotexist.com", {
       headers: { "User-Agent": "Mozilla/5.0" },
       signal: controller.signal,
@@ -39,34 +23,34 @@ export default async function handler(req, res) {
       throw new Error(`Upstream returned ${response.status}`);
     }
 
-    // CORS
+    const imageBuffer = await response.arrayBuffer();
+
+    // CORS headers
+    const headers = new Headers({
+      "Content-Type": "image/jpeg",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+      "Vary": "Origin",
+    });
+
     if (allowedOrigins.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
+      headers.set("Access-Control-Allow-Origin", origin);
+      headers.set("Access-Control-Allow-Credentials", "true");
     } else {
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Allow-Origin", "*");
     }
-    res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With"
-    );
 
-    // Headers ảnh
-    res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "no-store");
-
-    // ✅ Gửi ảnh bằng buffer thay vì pipe
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    res.status(200).send(buffer);
+    return new Response(imageBuffer, { status: 200, headers });
 
   } catch (error) {
     console.error("Proxy error:", error);
-    if (error.name === "AbortError") {
-      return res.status(504).json({ error: "Request timeout sau 1s" });
-    }
-    res.status(500).json({ error: "Không lấy được ảnh", detail: error.message });
+    return new Response(
+      JSON.stringify({ error: "Không lấy được ảnh", detail: error.message }),
+      {
+        status: error.name === "AbortError" ? 504 : 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }
