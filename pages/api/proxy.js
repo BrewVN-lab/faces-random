@@ -30,31 +30,97 @@ export default async function handler(req) {
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const OPENAI_KEY = process.env.OPENAI_API_KEY;
+    if (!OPENAI_KEY) throw new Error("Missing OPENAI_API_KEY");
 
-    const response = await fetch("https://thispersondoesnotexist.com", {
-      headers: { "User-Agent": "Mozilla/5.0" },
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    // Prompt cho ảnh thẻ sinh viên chân thực
+    const prompt = `Photorealistic student ID portrait, 512x512, centered face, neutral expression, plain white background, even lighting, high detail, no watermarks, no text. Should look like a typical university ID photo.`;
+
+    const resp = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_KEY}`,
+        "Content-Type": "application/json",
+      },
       signal: controller.signal,
+      body: JSON.stringify({
+        model: "imagen-4.0-generate-001",
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "output_text", text: prompt },
+              // Request image output metadata; exact schema may vary by API version.
+              { type: "input_image", image: { mime_type: "image/png", size: "512x512", background: "white" } }
+            ]
+          }
+        ],
+        // optional safety / params can be added here
+      }),
     });
 
     clearTimeout(timeout);
 
-    if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
+    if (!resp.ok) throw new Error(`Upstream error: ${resp.status}`);
 
-    const buffer = await response.arrayBuffer();
+    const data = await resp.json();
 
-    return new Response(buffer, {
+    // Tìm phần output chứa ảnh (thử nhiều cấu trúc vì API có thể khác nhau)
+    let b64 = null;
+    try {
+      // common shapes: data.output[0].content includes an object with type 'image' and image.data (base64)
+      const output = data.output || data.outputs || data;
+      if (Array.isArray(output)) {
+        for (const o of output) {
+          if (o?.content) {
+            for (const c of o.content) {
+              if (c?.type === "image" && c?.image?.data) {
+                b64 = c.image.data;
+                break;
+              }
+              if (c?.type === "input_image" && c?.image?.b64_json) {
+                b64 = c.image.b64_json;
+                break;
+              }
+            }
+          }
+          if (b64) break;
+        }
+      }
+      // fallback paths
+      if (!b64 && data?.output?.[0]?.content?.[0]?.image?.data) {
+        b64 = data.output[0].content[0].image.data;
+      }
+      if (!b64 && data?.output?.[0]?.content?.[0]?.b64_json) {
+        b64 = data.output[0].content[0].b64_json;
+      }
+    } catch (e) {
+      // ignore and let b64 be null
+    }
+
+    if (!b64) throw new Error("No image data returned from model");
+
+    // Decode base64 -> Uint8Array
+    const binaryString = globalThis.atob(b64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+
+    return new Response(bytes.buffer, {
       status: 200,
       headers: {
         ...Object.fromEntries(corsHeaders),
-        "Content-Type": "image/jpeg",
-        "X-Cache": "NONE",
+        "Content-Type": "image/png",
+        "X-Cache": "MODEL_IMAGEN",
       },
     });
   } catch (error) {
     console.error("Proxy error:", error);
 
+    // Fallback to placeholder image
     const fallback = await fetch(FALLBACK_IMAGE);
     const fallbackBuffer = await fallback.arrayBuffer();
 
