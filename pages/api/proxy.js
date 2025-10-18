@@ -30,80 +30,102 @@ export default async function handler(req) {
   }
 
   try {
-    const OPENAI_KEY = process.env.OPENAI_API_KEY;
-    if (!OPENAI_KEY) throw new Error("Missing OPENAI_API_KEY");
+    // Prefer GOOGLE_API_KEY; fallback to OPENAI_API_KEY if user put Google key there
+    const GOOGLE_KEY = process.env.GOOGLE_API_KEY || process.env.OPENAI_API_KEY;
+    if (!GOOGLE_KEY) throw new Error("Missing GOOGLE_API_KEY in environment (.env.local)");
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 20000); // 20s
 
-    // Prompt cho ảnh thẻ sinh viên chân thực
+    // Prompt cho ảnh thẻ sinh viên
     const prompt = `Photorealistic student ID portrait, 512x512, centered face, neutral expression, plain white background, even lighting, high detail, no watermarks, no text. Should look like a typical university ID photo.`;
 
-    const resp = await fetch("https://api.openai.com/v1/responses", {
+    // Google GenAI Images endpoint (uses API key query param)
+    const url = `https://generativeai.googleapis.com/v1/images:generate?key=${encodeURIComponent(GOOGLE_KEY)}`;
+
+    const body = {
+      model: "image-bison-001",
+      prompt: {
+        // plain text prompt
+        text: prompt
+      },
+      // Try requesting PNG 512x512; exact params depend on API version
+      image_format: "PNG",
+      // some API variants accept size or width/height — include a hint
+      size: "512x512"
+    };
+
+    const resp = await fetch(url, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENAI_KEY}`,
         "Content-Type": "application/json",
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        model: "imagen-4.0-generate-001",
-        input: [
-          {
-            role: "user",
-            content: [
-              { type: "output_text", text: prompt },
-              // Request image output metadata; exact schema may vary by API version.
-              { type: "input_image", image: { mime_type: "image/png", size: "512x512", background: "white" } }
-            ]
-          }
-        ],
-        // optional safety / params can be added here
-      }),
+      body: JSON.stringify(body),
     });
 
     clearTimeout(timeout);
 
-    if (!resp.ok) throw new Error(`Upstream error: ${resp.status}`);
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      throw new Error(`Google GenAI error ${resp.status} ${txt}`);
+    }
 
     const data = await resp.json();
 
-    // Tìm phần output chứa ảnh (thử nhiều cấu trúc vì API có thể khác nhau)
-    let b64 = null;
-    try {
-      // common shapes: data.output[0].content includes an object with type 'image' and image.data (base64)
-      const output = data.output || data.outputs || data;
-      if (Array.isArray(output)) {
-        for (const o of output) {
-          if (o?.content) {
-            for (const c of o.content) {
-              if (c?.type === "image" && c?.image?.data) {
-                b64 = c.image.data;
-                break;
-              }
-              if (c?.type === "input_image" && c?.image?.b64_json) {
-                b64 = c.image.b64_json;
-                break;
-              }
-            }
+    // Log returned JSON for debugging (check terminal)
+    console.log("Google GenAI images result:", JSON.stringify(data));
+
+    // Generic finder for base64 image data or URL in response
+    function findImageCandidate(obj) {
+      if (!obj || typeof obj !== "object") return null;
+      if (typeof obj.image === "string" && obj.image.length > 100) return { type: "b64", data: obj.image };
+      if (typeof obj.b64 === "string") return { type: "b64", data: obj.b64 };
+      if (typeof obj.b64_json === "string") return { type: "b64", data: obj.b64_json };
+      if (obj.images && Array.isArray(obj.images) && obj.images[0]) {
+        const it = obj.images[0];
+        if (typeof it.image === "string") return { type: "b64", data: it.image };
+        if (typeof it.b64 === "string") return { type: "b64", data: it.b64 };
+        if (typeof it.url === "string") return { type: "url", data: it.url };
+      }
+      if (obj.result && typeof obj.result === "object") {
+        return findImageCandidate(obj.result);
+      }
+      // recursively search
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (Array.isArray(v)) {
+          for (const it of v) {
+            const found = findImageCandidate(it);
+            if (found) return found;
           }
-          if (b64) break;
+        } else if (typeof v === "object" && v !== null) {
+          const found = findImageCandidate(v);
+          if (found) return found;
         }
       }
-      // fallback paths
-      if (!b64 && data?.output?.[0]?.content?.[0]?.image?.data) {
-        b64 = data.output[0].content[0].image.data;
-      }
-      if (!b64 && data?.output?.[0]?.content?.[0]?.b64_json) {
-        b64 = data.output[0].content[0].b64_json;
-      }
-    } catch (e) {
-      // ignore and let b64 be null
+      return null;
     }
 
-    if (!b64) throw new Error("No image data returned from model");
+    const candidate = findImageCandidate(data);
+    if (!candidate) throw new Error("No image data returned from Google GenAI");
 
-    // Decode base64 -> Uint8Array
+    if (candidate.type === "url") {
+      const fetched = await fetch(candidate.data);
+      if (!fetched.ok) throw new Error(`Failed to fetch image URL: ${fetched.status}`);
+      const buffer = await fetched.arrayBuffer();
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          ...Object.fromEntries(corsHeaders),
+          "Content-Type": fetched.headers.get("Content-Type") || "image/png",
+          "X-Cache": "GOOGLE_IMAGE_URL",
+        },
+      });
+    }
+
+    // candidate.type === 'b64'
+    const b64 = candidate.data.replace(/^data:image\/\w+;base64,/, "");
     const binaryString = globalThis.atob(b64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
@@ -114,23 +136,27 @@ export default async function handler(req) {
       headers: {
         ...Object.fromEntries(corsHeaders),
         "Content-Type": "image/png",
-        "X-Cache": "MODEL_IMAGEN",
+        "X-Cache": "GOOGLE_IMAGE_B64",
       },
     });
   } catch (error) {
     console.error("Proxy error:", error);
 
     // Fallback to placeholder image
-    const fallback = await fetch(FALLBACK_IMAGE);
-    const fallbackBuffer = await fallback.arrayBuffer();
+    try {
+      const fallback = await fetch(FALLBACK_IMAGE);
+      const fallbackBuffer = await fallback.arrayBuffer();
 
-    return new Response(fallbackBuffer, {
-      status: 200,
-      headers: {
-        ...Object.fromEntries(corsHeaders),
-        "Content-Type": "image/png",
-        "X-Cache": "FALLBACK",
-      },
-    });
+      return new Response(fallbackBuffer, {
+        status: 200,
+        headers: {
+          ...Object.fromEntries(corsHeaders),
+          "Content-Type": "image/png",
+          "X-Cache": "FALLBACK",
+        },
+      });
+    } catch (e) {
+      return new Response("Error", { status: 500, headers: corsHeaders });
+    }
   }
 }
